@@ -1,0 +1,23 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 5
+maxMessageSize = 200
+enableWebsocketCompression = true
+
+[browser]
+serverAddress = "0.0.0.0"
+serverPort = 8501
+
+[runner]
+# Handle more concurrent users
+magicEnabled = true
+fastReruns = true
+
+[theme]
+primaryColor = "#F63366"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif" 

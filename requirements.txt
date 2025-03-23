@@ -1,0 +1,8 @@
+streamlit==1.43.2
+pymongo==4.11.3
+python-dotenv==1.0.1
+pandas==2.2.3
+dnspython==2.7.0
+google-generativeai==0.3.2
+xlsxwriter
+pyngrok 
