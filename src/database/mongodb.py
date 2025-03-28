@@ -1,10 +1,16 @@
 import os
 from pymongo import MongoClient
 import streamlit as st
+from urllib.parse import quote_plus
 
 # Get MongoDB connection details from Streamlit secrets
-MONGODB_URI = st.secrets["mongodb_uri"]
+username = st.secrets["mongodb_username"]
+password = st.secrets["mongodb_password"]
+cluster = st.secrets["mongodb_cluster"]
 DB_NAME = st.secrets["mongodb_database"]
+
+# Construct MongoDB URI
+MONGODB_URI = f"mongodb+srv://{username}:{password}@{cluster}/?appName=programming-contest"
 
 # Create MongoDB client
 client = MongoClient(MONGODB_URI)
