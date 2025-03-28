@@ -5,6 +5,7 @@ import random
 import time
 from bson.objectid import ObjectId
 import pandas as pd
+import json
 
 def get_unused_problem_set():
     """Get an unused problem set for the student"""
@@ -386,71 +387,52 @@ def show_test():
         """, unsafe_allow_html=True)
 
 def submit_test():
-    """Submit the test and calculate score"""
-    try:
-        total_score = 0
-        question_attempts = []
+    """Submit the test and calculate scores"""
+    if not st.session_state.get('test_session'):
+        st.error("No active test session found")
+        return
+    
+    if st.button("Submit Test"):
+        # Get the test session
+        test_session = st.session_state.test_session
         
-        # Grade MCQs
-        for i, mcq in enumerate(st.session_state.questions['mcq']):
-            answer = st.session_state.questions['answers'].get(f"mcq_{i}")
-            is_correct = answer == mcq['correct_answer']
-            total_score += 1 if is_correct else 0
-            question_attempts.append({
-                "question_id": i,
-                "question_text": mcq['question_text'],
-                "student_answer": answer,
-                "correct_answer": mcq['correct_answer'],
-                "is_correct": is_correct,
-                "marks_obtained": 1 if is_correct else 0
-            })
+        # Calculate total score
+        mcq_score = sum(attempt['marks_obtained'] for attempt in test_session['question_attempts'] 
+                       if isinstance(attempt.get('question_id'), int))
         
-        # Store coding answer
-        coding_answer = st.session_state.questions['answers'].get('coding', '')
-        if st.session_state.questions['coding']:
-            coding_question = st.session_state.questions['coding'][0]
-            question_attempts.append({
-                "question_id": "coding_1",
-                "question_text": coding_question['problem_statement'],
-                "student_answer": coding_answer,
-                "sample_input": coding_question['sample_input'],
-                "sample_output": coding_question['sample_output'],
-                "is_correct": None,  # Will be evaluated by admin
-                "marks_obtained": 0  # Will be updated by admin
-            })
+        coding_attempt = next((attempt for attempt in test_session['question_attempts'] 
+                             if attempt.get('question_id') == "coding_1"), None)
+        coding_score = coding_attempt.get('marks_obtained', 0) if coding_attempt else 0
         
-        # Update test session
-        result = db.test_sessions.update_one(
-            {
-                "student_id": st.session_state.student_id,
-                "is_completed": False
-            },
+        total_score = mcq_score + coding_score
+        
+        # Update test session with completion status and time
+        test_session.update({
+            "is_completed": True,
+            "end_time": datetime.now(),
+            "total_score": total_score
+        })
+        
+        # Update in database
+        db.test_sessions.update_one(
+            {"_id": test_session["_id"]},
             {
                 "$set": {
+                    "question_attempts": test_session["question_attempts"],
                     "is_completed": True,
-                    "end_time": datetime.now(),
-                    "total_score": total_score,
-                    "question_attempts": question_attempts,
-                    "answers": st.session_state.questions['answers']
+                    "end_time": test_session["end_time"],
+                    "total_score": total_score
                 }
             }
         )
         
-        if result.modified_count == 0:
-            st.error("Failed to submit test. Please try again or contact administrator.")
-            return None
+        # Clear session state
+        st.session_state.test_session = None
+        st.session_state.current_question = None
+        st.session_state.test_started = False
         
-        # Clear test-related session state
-        keys_to_clear = ['questions', 'end_time', 'test_session', 'last_update']
-        for key in keys_to_clear:
-            if key in st.session_state:
-                del st.session_state[key]
-        
-        return total_score
-        
-    except Exception as e:
-        st.error(f"Error submitting test: {str(e)}")
-        return None
+        st.success("Test submitted successfully!")
+        st.rerun()
 
 def show_completed_test(test_session):
     """Show the test completion screen"""
@@ -584,15 +566,8 @@ def start_test():
             
             # Initialize questions if not in session state
             if 'questions' not in st.session_state:
-                mcq_set = db.questions.find_one({"_id": existing_session["problem_set_id"], "type": "mcq"})
-                coding_set = db.questions.find_one({
-                    "type": "coding",
-                    "universal_prompt": mcq_set["universal_prompt"],
-                    "created_at": {
-                        "$gte": mcq_set["created_at"] - timedelta(seconds=5),
-                        "$lte": mcq_set["created_at"] + timedelta(seconds=5)
-                    }
-                })
+                mcq_set = db.questions.find_one({"_id": existing_session["mcq_set_id"], "type": "mcq"})
+                coding_set = db.questions.find_one({"_id": existing_session["coding_set_id"], "type": "coding"})
                 
                 st.session_state.questions = {
                     'mcq': mcq_set['generated_questions'],
@@ -605,20 +580,35 @@ def start_test():
             return True
         
         # Get an unused problem set
-        problem_set = get_unused_problem_set()
-        if not problem_set:
+        mcq_set = get_unused_problem_set()
+        if not mcq_set:
             st.error("No available question sets found. Please contact the administrator.")
+            return False
+        
+        # Get corresponding coding questions
+        coding_set = db.questions.find_one({
+            "type": "coding",
+            "universal_prompt": mcq_set["universal_prompt"],
+            "created_at": {
+                "$gte": mcq_set["created_at"] - timedelta(seconds=5),
+                "$lte": mcq_set["created_at"] + timedelta(seconds=5)
+            }
+        })
+        
+        if not coding_set:
+            st.error("No matching coding questions found. Please contact the administrator.")
             return False
         
         # Get contest settings
         settings = db.settings.find_one({"type": "contest_settings"}) or {"duration_minutes": 60}
         contest_duration = settings.get("duration_minutes", 60)
         
-        # Create test session
+        # Create test session with both MCQ and coding set IDs
         start_time = datetime.now()
         test_session = {
             "student_id": st.session_state.student_id,
-            "problem_set_id": problem_set['_id'],
+            "mcq_set_id": mcq_set['_id'],
+            "coding_set_id": coding_set['_id'],
             "start_time": start_time,
             "end_time": start_time + timedelta(minutes=contest_duration),
             "is_completed": False,
@@ -633,24 +623,11 @@ def start_test():
         # Initialize session state
         st.session_state.test_session = test_session
         st.session_state.questions = {
-            'mcq': problem_set['generated_questions'],
-            'coding': [],
+            'mcq': mcq_set['generated_questions'],
+            'coding': coding_set['generated_questions'],
             'current_mcq': 0,
             'answers': {}
         }
-        
-        # Get corresponding coding questions
-        coding_set = db.questions.find_one({
-            "type": "coding",
-            "universal_prompt": problem_set["universal_prompt"],
-            "created_at": {
-                "$gte": problem_set["created_at"] - timedelta(seconds=5),
-                "$lte": problem_set["created_at"] + timedelta(seconds=5)
-            }
-        })
-        
-        if coding_set:
-            st.session_state.questions['coding'] = coding_set['generated_questions']
         
         st.success("✨ Test started successfully!")
         return True

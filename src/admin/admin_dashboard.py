@@ -10,6 +10,9 @@ import string
 import io
 import os
 from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +20,401 @@ load_dotenv()
 # Configure Gemini
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 model = genai.GenerativeModel("gemini-1.5-flash")
+
+def send_email(to_email, subject, body, cc_email=None):
+    """Send email using SMTP"""
+    try:
+        # Get email credentials from environment variables
+        smtp_server = os.getenv('SMTP_SERVER')
+        smtp_port = int(os.getenv('SMTP_PORT', 587))
+        smtp_username = os.getenv('SMTP_USERNAME')
+        smtp_password = os.getenv('SMTP_PASSWORD')
+        from_email = os.getenv('FROM_EMAIL')
+        
+        if not all([smtp_server, smtp_port, smtp_username, smtp_password, from_email]):
+            raise ValueError("Missing email configuration. Please check environment variables.")
+        
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = from_email
+        msg['To'] = to_email
+
+        # Handle CC recipients
+        recipients = [to_email]
+        if cc_email:
+            if isinstance(cc_email, list):
+                # Join multiple CC emails with commas
+                msg['Cc'] = ', '.join(cc_email)
+                recipients.extend(cc_email)
+            else:
+                # Single CC email
+                msg['Cc'] = cc_email
+                recipients.append(cc_email)
+        
+        # Add HTML content
+        msg.attach(MIMEText(body, 'html'))
+        
+        # Send email
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.sendmail(from_email, recipients, msg.as_string())
+        
+    except Exception as e:
+        raise Exception(f"Failed to send email: {str(e)}")
+
+def generate_email_report(session, student):
+    """Generate HTML email report for student test results"""
+    
+    # Calculate scores
+    mcq_score = sum(
+        attempt['marks_obtained'] 
+        for attempt in session['question_attempts'] 
+        if isinstance(attempt.get('question_id'), int)
+    )
+    
+    coding_attempt = next(
+        (attempt for attempt in session['question_attempts'] 
+        if attempt.get('question_id') == "coding_1"),
+        None
+    )
+    coding_score = coding_attempt.get('marks_obtained', 0) if coding_attempt else 0
+    
+    # Get MCQ responses
+    mcq_responses = [
+        attempt for attempt in session['question_attempts'] 
+        if isinstance(attempt.get('question_id'), int)
+    ]
+    
+    # Get coding question details
+    coding_question = None
+    if coding_attempt:
+        coding_set_id = session.get("coding_set_id")
+        if coding_set_id:
+            coding_set = db.questions.find_one({"_id": coding_set_id, "type": "coding"})
+            if coding_set and coding_set['generated_questions']:
+                coding_question = coding_set['generated_questions'][0]
+    
+    # CSS styles
+    css = """
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        .header {
+            background-color: #1a237e;
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .header h2 {
+            margin: 0;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .scores {
+            display: flex;
+            justify-content: space-between;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .score-item {
+            text-align: center;
+            flex: 1;
+            padding: 15px;
+            border-right: 1px solid #eee;
+        }
+        .score-item:last-child {
+            border-right: none;
+        }
+        .score-item h3 {
+            color: #1a237e;
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        .score-item p {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 0;
+            color: #2196F3;
+        }
+        .section {
+            background-color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .section h3 {
+            color: #1a237e;
+            margin-top: 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            font-size: 20px;
+        }
+        .question {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        .correct {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        .incorrect {
+            color: #c62828;
+            font-weight: bold;
+        }
+        code {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            display: block;
+            white-space: pre-wrap;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            border: 1px solid #e0e0e0;
+            font-size: 14px;
+        }
+        .problem-statement {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .score-breakdown {
+            background-color: #e3f2fd;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .score-breakdown h4 {
+            color: #1565c0;
+            margin-top: 0;
+        }
+        .score-breakdown ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+        .score-breakdown li {
+            padding: 8px 0;
+            border-bottom: 1px solid #bbdefb;
+        }
+        .score-breakdown li:last-child {
+            border-bottom: none;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            margin-top: 30px;
+            color: #666;
+        }
+        .summary-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border-left: 4px solid #1a237e;
+        }
+        .summary-section h4 {
+            color: #1a237e;
+            margin-top: 0;
+        }
+        .evaluation-point {
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .evaluation-point:last-child {
+            border-bottom: none;
+        }
+        .evaluation-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .evaluation-section h4 {
+            color: #1a237e;
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+        
+        .score-item {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .score-item:last-child {
+            border-bottom: none;
+        }
+        
+        .score-label {
+            font-weight: bold;
+            color: #1565c0;
+        }
+        
+        .evaluation-text {
+            margin: 15px 0;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .evaluation-header {
+            font-weight: bold;
+            color: #1565c0;
+            margin: 20px 0 10px 0;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .evaluation-content {
+            margin: 10px 0;
+            padding-left: 15px;
+            border-left: 3px solid #e3f2fd;
+        }
+        
+        .score-line {
+            font-size: 16px;
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .divider {
+            border-top: 1px solid #e0e0e0;
+            margin: 20px 0;
+        }
+        
+        .evaluation-block {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .evaluation-title {
+            font-size: 18px;
+            color: #1565c0;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .evaluation-content {
+            margin-left: 25px;
+            line-height: 1.6;
+        }
+    </style>
+    """
+    
+    # Generate HTML content
+    html = f"""
+    {css}
+    <div class="header">
+        <h2>🎓 Programming Test Report</h2>
+        <p>Dear {student['name']},</p>
+        <p>Here is your detailed test performance report.</p>
+    </div>
+    
+    <div class="scores">
+        <div class="score-item">
+            <h3>🎯 Total Score</h3>
+            <p>{session['total_score']}/10</p>
+        </div>
+        <div class="score-item">
+            <h3>📝 MCQ Score</h3>
+            <p>{mcq_score}/5</p>
+        </div>
+        <div class="score-item">
+            <h3>💻 Coding Score</h3>
+            <p>{coding_score}/5</p>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h3>📋 MCQ Responses</h3>
+        {''.join([f'''
+        <div class="question">
+            <p><strong>Question {i+1}:</strong> {response.get('question_text')}</p>
+            <p>Your Answer: <span class="{'correct' if response.get('is_correct') else 'incorrect'}">
+                {response.get('student_answer')} {' ✅' if response.get('is_correct') else ' ❌'}
+            </span></p>
+            {f'<p>Correct Answer: <span class="correct">{response.get("correct_answer")}</span></p>' if not response.get('is_correct') else ''}
+        </div>
+        ''' for i, response in enumerate(mcq_responses)])}
+    </div>
+    
+    <div class="section">
+        <h3>🔍 Coding Problem</h3>
+        {f'''
+        <div class="problem-statement">
+            <h4>Problem Statement:</h4>
+            <p>{coding_question['problem_statement']}</p>
+            
+            <h4>Your Solution:</h4>
+            <code>{coding_attempt.get('student_answer', 'No code submitted').strip()}</code>
+            
+            <div class="score-breakdown">
+                <h4>Score Breakdown:</h4>
+                <ul>
+                    <li>🎯 Attempt Score: <strong>{coding_attempt['coding_breakdown'].get('attempt_score', 0)}/1</strong></li>
+                    <li>📝 Syntax Score: <strong>{coding_attempt['coding_breakdown'].get('syntax_score', 0)}/2</strong></li>
+                    <li>🧠 Logic Score: <strong>{coding_attempt['coding_breakdown'].get('logic_score', 0)}/2</strong></li>
+                </ul>
+            </div>
+        </div>
+        ''' if coding_attempt and coding_question else '<p>No coding submission found</p>'}
+    </div>
+    
+    <div class="section">
+        <h3>📊 Detailed Summary</h3>
+        <div class="summary-section">
+            {session.get('feedback', 'No feedback available')
+                .replace('📝 MCQ Performance Summary', '<h4>📝 MCQ Performance Summary</h4>')
+                .replace('💻 Coding Performance Summary', '<h4>💻 Coding Performance Summary</h4>')
+                .replace('Score Breakdown', '<div class="evaluation-header">Score Breakdown</div>')
+                .replace('• Attempt Score:', '<div class="score-line">• Attempt Score:')
+                .replace('---------------------------------------------', '<div class="divider"></div>')
+                .replace('🎯 Attempt Score', '<div class="evaluation-block"><div class="evaluation-title">🎯 Attempt Score')
+                .replace('📝 Syntax Score', '<div class="evaluation-block"><div class="evaluation-title">📝 Syntax Score')
+                .replace('🧠 Logic Score', '<div class="evaluation-block"><div class="evaluation-title">🧠 Logic Score')
+                .replace(')/1', ')/1</div>')
+                .replace(')/2', ')/2</div>')
+                .replace('• The student', '<div class="evaluation-content">• The student')
+                .replace('Topics to Review:', '<div class="evaluation-header">📚 Topics to Review</div>')
+                .replace('</div>\n•', '</div></div>\n•')}
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Thank you for participating in the test.</p>
+        <p><strong>Best regards,<br>Jazzee Team</strong></p>
+    </div>
+    """
+    
+    return html
 
 def ask_gemini(question):
     try:
@@ -228,12 +626,19 @@ def manage_contest_settings():
             st.success("✨ Contest settings updated successfully!")
 
 def show_dashboard():
+    """Display the admin dashboard"""
     st.title("Admin Dashboard")
     
-    # Add logout button and stats in sidebar
-    if st.sidebar.button("🚪 Logout", use_container_width=True):
-        st.session_state.user_role = None
-        st.rerun()
+    # Add logout button in sidebar
+    with st.sidebar:
+        if st.button("Logout"):
+            st.session_state.clear()
+            st.rerun()
+    
+    # Add re-evaluation option in sidebar
+    with st.sidebar:
+        st.markdown("### Test Management")
+        revaluate_coding_submissions()
     
     # Add statistics in sidebar
     stats = get_question_set_statistics()
@@ -611,188 +1016,287 @@ def view_questions(stats=None):
 
 def generate_student_feedback(test_session, student):
     """Generate AI feedback for student performance"""
-    # Prepare performance data for AI
-    mcq_correct = sum(1 for attempt in test_session['question_attempts'] 
-                     if isinstance(attempt['question_id'], int) and attempt['is_correct'])
-    mcq_total = sum(1 for attempt in test_session['question_attempts'] 
-                    if isinstance(attempt['question_id'], int))
+    feedback_parts = []
     
-    prompt = f"""As an AI tutor, provide constructive feedback for a student's programming test performance:
+    # MCQ Analysis
+    mcq_attempts = [attempt for attempt in test_session['question_attempts'] 
+                   if isinstance(attempt.get('question_id'), int)]
+    incorrect_mcqs = [attempt for attempt in mcq_attempts if not attempt.get('is_correct')]
+    
+    feedback_parts.append("📝 MCQ Performance Summary")
+    if not incorrect_mcqs:
+        feedback_parts.append("🎉 Congratulations! All MCQ questions were answered correctly.")
+    else:
+        feedback_parts.append("Topics to Review:")
+        # Create prompt for Gemini to analyze incorrect MCQs
+        mcq_analysis_prompt = f"""Analyze these incorrect MCQ responses and identify the Python topics the student needs to work on. Keep it brief and focused on topics only.
 
-Student: {student['name']}
-MCQ Score: {mcq_correct}/{mcq_total}
-Total Score: {test_session['total_score']}/10
+Questions and Answers:
+{chr(10).join(f"Q: {q['question_text']}\nStudent's Answer: {q['student_answer']}\nCorrect Answer: {q['correct_answer']}" for q in incorrect_mcqs)}
 
-Question Performance:
-{chr(10).join(f"- {'Correct' if attempt['is_correct'] else 'Incorrect'}: {attempt['student_answer']}" 
-              for attempt in test_session['question_attempts'] if isinstance(attempt['question_id'], int))}
+Return ONLY a bullet point list of topics to review. Example:
+• Variables and Data Types
+• Conditional Statements
+etc."""
 
-Coding Submission:
-{test_session['question_attempts'][-1]['student_answer']}
+        topics_to_review = ask_gemini(mcq_analysis_prompt)
+        if topics_to_review:
+            feedback_parts.append(topics_to_review)
+    
+    # Coding Analysis
+    feedback_parts.append("\n💻 Coding Performance Summary")
+    coding_attempt = next((attempt for attempt in test_session['question_attempts'] 
+                         if attempt.get('question_id') == "coding_1"), None)
+    
+    if coding_attempt and 'coding_breakdown' in coding_attempt:
+        breakdown = coding_attempt['coding_breakdown']
+        
+        # Score Breakdown Summary
+        feedback_parts.append("\nScore Breakdown")
+        feedback_parts.append(f"• Attempt Score: {breakdown['attempt_score']}/1 | Syntax Score: {breakdown['syntax_score']}/2 | Logic Score: {breakdown['logic_score']}/2")
+        feedback_parts.append("\n---------------------------------------------\n")
+        
+        # Detailed Evaluation Summary
+        evaluation_prompt = f"""Based on this code evaluation:
+{breakdown['explanation']}
 
-Provide feedback in these areas:
-1. Overall performance analysis
-2. Specific areas of strength
-3. Areas for improvement
-4. Suggested learning resources
-5. Next steps for improvement
+Format the response EXACTLY like this:
 
-Keep the feedback constructive, encouraging, and specific to their performance."""
+🎯 Attempt Score ({breakdown['attempt_score']}/1)
+• The student demonstrated a clear understanding of the problem and made a sincere effort to develop a solution. The code submitted represents a complete, albeit possibly naive, attempt at solving the problem. There's no evidence of simply guessing or submitting incomplete or nonsensical code.
 
-    feedback = ask_gemini(prompt)
-    return feedback if feedback else "Unable to generate feedback at this time."
+📝 Syntax Score ({breakdown['syntax_score']}/2)
+• The code is free of syntax errors. The code compiles and runs without any issues related to incorrect grammar or structure of the programming language. Keywords, operators, and punctuation are used correctly. There are no typos or missing semicolons (or equivalent syntax depending on the language).
+
+🧠 Logic Score ({breakdown['logic_score']}/2)
+• The student's code correctly implements the algorithm to solve the problem. The logic accurately iterates through the required range, uses appropriate conditional statements, and calculates the result without any logical flaws. The use of the `range` function (or its equivalent) appropriately generates the sequence of numbers to iterate over."""
+
+        detailed_evaluation = ask_gemini(evaluation_prompt)
+        if detailed_evaluation:
+            feedback_parts.append(detailed_evaluation)
+        else:
+            # Fallback to original explanation if Gemini fails
+            feedback_parts.append(breakdown['explanation'])
+    else:
+        feedback_parts.append("❌ No coding submission found or not evaluated.")
+    
+    return "\n".join(feedback_parts)
 
 def view_results():
-    st.subheader("Student Results")
+    """View and manage test results"""
+    st.title("Test Results")
     
-    # Get all completed test sessions with full data
-    test_sessions = list(db.test_sessions.find({
-        "is_completed": True
-    }))
+    # Get completed test sessions
+    completed_sessions = list(db.test_sessions.find({"is_completed": True}))
     
-    if test_sessions:
-        # Create summary table
-        results_data = []
-        for session in test_sessions:
-            # Convert string ID to ObjectId if necessary
-            student_id = session["student_id"]
-            if isinstance(student_id, str):
-                student_id = ObjectId(student_id)
+    if not completed_sessions:
+        st.warning("No completed test sessions found.")
+        return
+    
+    # Create summary table
+    results_data = []
+    for session in completed_sessions:
+        # Convert string ID to ObjectId if needed
+        student_id = session["student_id"]
+        if isinstance(student_id, str):
+            student_id = ObjectId(student_id)
             
-            student = db.users.find_one({"_id": student_id})
-            if student:
-                # Calculate MCQ score
-                mcq_correct = sum(1 for attempt in session.get('question_attempts', []) 
-                                if isinstance(attempt.get('question_id'), int) and attempt.get('is_correct'))
-                
-                results_data.append({
-                    "Name": student.get("name", "Not provided"),
-                    "Email": student.get("email", "Not provided"),
-                    "Score": f"{session.get('total_score', 0)}/10",
-                    "MCQ Score": f"{mcq_correct}/5",
-                    "Completion Time": session["end_time"].strftime("%Y-%m-%d %H:%M"),
-                    "Duration": int((session["end_time"] - session["start_time"]).total_seconds() // 60),
-                    "_session": session,
-                    "_student": student
-                })
+        # Get student from users collection instead of students collection
+        student = db.users.find_one({"_id": student_id, "role": "student"})
+        if not student:
+            continue
+            
+        # Calculate scores
+        mcq_score = sum(
+            attempt['marks_obtained'] 
+            for attempt in session['question_attempts'] 
+            if isinstance(attempt.get('question_id'), int)
+        )
         
-        if results_data:
-            # Delete All Results button with confirmation
-            delete_all_col1, delete_all_col2 = st.columns([3, 1])
-            with delete_all_col2:
-                if st.button("🗑️ Delete All Results", type="secondary", use_container_width=True):
-                    st.session_state.show_results_delete_confirmation = True
+        coding_attempt = next(
+            (attempt for attempt in session['question_attempts'] 
+            if attempt.get('question_id') == "coding_1"),
+            None
+        )
+        coding_score = coding_attempt.get('marks_obtained', 0) if coding_attempt else 0
+        
+        completion_time = session.get('end_time', '').strftime('%Y-%m-%d %H:%M:%S') if session.get('end_time') else 'Unknown'
+        
+        results_data.append({
+            'Student Name': student.get('name', 'Unknown'),
+            'Email': student.get('email', 'Not provided'),
+            'Total Score': session['total_score'],
+            'MCQ Score': mcq_score,
+            'Coding Score': coding_score,
+            'Completion Time': completion_time
+        })
+    
+    # Display summary table
+    if results_data:
+        df = pd.DataFrame(results_data)
+        st.dataframe(df)
+    else:
+        st.info("No results to display.")
+    
+    # Detailed view for each submission
+    st.header("Detailed Submissions")
+    
+    for session in completed_sessions:
+        # Convert string ID to ObjectId if needed
+        student_id = session["student_id"]
+        if isinstance(student_id, str):
+            student_id = ObjectId(student_id)
             
-            # Show confirmation dialog for Delete All
-            if st.session_state.get('show_results_delete_confirmation', False):
-                st.warning("⚠️ Are you sure you want to delete all student results? This action cannot be undone!")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✅ Yes, Delete All Results", type="primary", use_container_width=True):
-                        # Delete all test sessions
-                        db.test_sessions.delete_many({"is_completed": True})
-                        st.session_state.show_results_delete_confirmation = False
-                        st.success("✨ All student results have been deleted!")
-                        st.rerun()
-                with col2:
-                    if st.button("❌ No, Cancel", type="secondary", use_container_width=True):
-                        st.session_state.show_results_delete_confirmation = False
-                        st.rerun()
+        # Get student from users collection
+        student = db.users.find_one({"_id": student_id, "role": "student"})
+        if not student:
+            continue
             
-            st.markdown("---")
+        with st.expander(f"View Details - {student.get('name', 'Unknown')}"):
+            st.subheader("Student Information")
+            st.write(f"Name: {student.get('name', 'Unknown')}")
+            st.write(f"Email: {student.get('email', 'Not provided')}")
             
-            # Display summary table
-            df = pd.DataFrame(results_data)
-            display_df = df[["Name", "Email", "Score", "MCQ Score", "Completion Time", "Duration"]].copy()
-            display_df.columns = ["Name", "Email", "Total Score", "MCQ Score", "Completion Time", "Duration (mins)"]
-            st.dataframe(display_df, use_container_width=True)
+            # Display scores
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Score", f"{session['total_score']}/10")
+            with col2:
+                mcq_score = sum(
+                    attempt['marks_obtained'] 
+                    for attempt in session['question_attempts'] 
+                    if isinstance(attempt.get('question_id'), int)
+                )
+                st.metric("MCQ Score", f"{mcq_score}/5")
+            with col3:
+                coding_attempt = next(
+                    (attempt for attempt in session['question_attempts'] 
+                    if attempt.get('question_id') == "coding_1"),
+                    None
+                )
+                coding_score = coding_attempt.get('marks_obtained', 0) if coding_attempt else 0
+                st.metric("Coding Score", f"{coding_score}/5")
             
-            # Detailed view for each student
-            st.markdown("### Detailed Results")
-            for result in results_data:
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    expander_label = f"📝 {result['Name']} - {result['Score']}"
-                with col2:
-                    if st.button("🗑️ Delete", key=f"delete_result_{result['_session']['_id']}", use_container_width=True):
-                        # Delete this test session
-                        db.test_sessions.delete_one({"_id": result["_session"]["_id"]})
-                        st.success(f"✨ Results for {result['Name']} have been deleted!")
-                        st.rerun()
-                
-                with st.expander(expander_label):
-                    session = result["_session"]
-                    student = result["_student"]
-                    
-                    # Test Overview
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total Score", result["Score"])
-                    with col2:
-                        st.metric("Duration", f"{result['Duration']} mins")
-                    with col3:
-                        st.metric("MCQ Score", result["MCQ Score"])
-                    
-                    # MCQ Analysis
-                    st.markdown("#### MCQ Responses")
-                    mcq_set = db.questions.find_one({"_id": session["problem_set_id"], "type": "mcq"})
-                    
-                    for attempt in session.get('question_attempts', []):
-                        if isinstance(attempt.get('question_id'), int):  # MCQ question
-                            status = "✅" if attempt.get('is_correct') else "❌"
-                            question_num = attempt['question_id'] + 1
-                            
-                            # Get the original question if available
-                            question_text = "Question not found"
-                            correct_answer = "Answer not found"
-                            if mcq_set and 0 <= attempt['question_id'] < len(mcq_set['generated_questions']):
-                                q = mcq_set['generated_questions'][attempt['question_id']]
-                                question_text = q['question_text']
-                                correct_answer = q['correct_answer']
-                            
-                            st.markdown(f"{status} **Question {question_num}**")
-                            st.markdown(f"Question: {question_text}")
-                            st.markdown(f"Student's Answer: `{attempt['student_answer']}`")
-                            if not attempt.get('is_correct'):
-                                st.markdown(f"Correct Answer: `{correct_answer}`")
-                            st.markdown("---")
-                    
-                    # Coding Submission
-                    st.markdown("#### Coding Submission")
-                    coding_attempt = next((attempt for attempt in session.get('question_attempts', []) 
-                                        if attempt.get('question_id') == "coding_1"), None)
-                    
-                    # Get the original coding question
-                    coding_set = db.questions.find_one({"_id": session["problem_set_id"], "type": "coding"})
+            # MCQ Responses
+            st.subheader("MCQ Responses")
+            for attempt in session['question_attempts']:
+                if isinstance(attempt.get('question_id'), int):
+                    st.write(f"Question {attempt['question_id']}:")
+                    st.write(f"- Question Text: {attempt.get('question_text', 'N/A')}")
+                    st.write(f"- Student's Answer: {attempt.get('student_answer', 'No answer')}")
+                    st.write(f"- Correct: {'✅' if attempt.get('is_correct') else '❌'}")
+                    if not attempt.get('is_correct'):
+                        st.write(f"- Correct Answer: {attempt.get('correct_answer', 'N/A')}")
+                    st.write("---")
+            
+            # Coding Submission
+            st.subheader("Coding Submission")
+            if coding_attempt:
+                coding_set_id = session.get("coding_set_id")
+                if coding_set_id:
+                    coding_set = db.questions.find_one({"_id": coding_set_id, "type": "coding"})
                     if coding_set and coding_set['generated_questions']:
-                        st.markdown("**Problem Statement:**")
-                        st.markdown(coding_set['generated_questions'][0]['problem_statement'])
+                        coding_question = coding_set['generated_questions'][0]
+                        st.write("Problem Statement:")
+                        st.write(coding_question['problem_statement'])
+                        st.write("Sample Input:")
+                        st.code(coding_question.get('sample_input', 'Not available'))
+                        st.write("Sample Output:")
+                        st.code(coding_question.get('sample_output', 'Not available'))
+                
+                st.write("Student's Solution:")
+                if coding_attempt.get('student_answer'):
+                    st.code(coding_attempt['student_answer'].strip(), language='python')
+                else:
+                    st.warning("No code submitted")
+                
+                st.write("Score Breakdown:")
+                breakdown = coding_attempt.get('coding_breakdown', {})
+                st.write(f"- Attempt Score: {breakdown.get('attempt_score', 0)}/1")
+                st.write(f"- Syntax Score: {breakdown.get('syntax_score', 0)}/2")
+                st.write(f"- Logic Score: {breakdown.get('logic_score', 0)}/2")
+            else:
+                st.warning("No coding submission found")
+            
+            # AI Tutor Feedback
+            st.subheader("AI Tutor Feedback")
+            if session.get('feedback'):
+                st.write(session['feedback'])
+            else:
+                st.warning("No feedback available")
+            
+            # Email Report Section
+            st.markdown("---")
+            st.subheader("📧 Send Email Report")
+            
+            # Generate email report
+            email_body = generate_email_report(session, student)
+            
+            # Show email status and form
+            if session.get('email_sent'):
+                st.success("✉️ Email report has been sent to the student")
+            
+            # Always show the email form
+            with st.form(key=f"email_form_{session['_id']}"):
+                st.markdown("### Email Details")
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    recipient_email = st.text_input(
+                        "To:",
+                        value=student.get('email', ''),
+                        key=f"recipient_{session['_id']}"
+                    )
+                with col2:
+                    cc_email = st.text_input(
+                        "CC:",
+                        placeholder="Multiple emails separated by comma",
+                        help="You can add multiple CC recipients separated by commas (e.g., email1@example.com, email2@example.com)",
+                        key=f"cc_{session['_id']}"
+                    )
+                
+                # Add subject field
+                subject = st.text_input(
+                    "Subject:",
+                    value=f"Test Report - {student.get('name', 'Unknown')}",
+                    key=f"subject_{session['_id']}"
+                )
+                
+                # Show email preview with edit option
+                st.markdown("### 📝 Email Content")
+                edited_email_body = st.text_area(
+                    "Edit email content if needed:",
+                    value=email_body,
+                    height=500,
+                    key=f"body_{session['_id']}"
+                )
+                
+                # Submit button
+                if st.form_submit_button("📤 Send Email Report", type="primary", use_container_width=True):
+                    try:
+                        # Process CC emails
+                        cc_list = None
+                        if cc_email:
+                            cc_list = [email.strip() for email in cc_email.split(',') if email.strip()]
                         
-                        st.markdown("**Expected Input/Output:**")
-                        st.code(coding_set['generated_questions'][0]['sample_input'], language="python")
-                        st.code(coding_set['generated_questions'][0]['sample_output'], language="python")
-                    
-                    if coding_attempt:
-                        st.markdown("**Student's Solution:**")
-                        if coding_attempt['student_answer'].strip():
-                            st.code(coding_attempt['student_answer'], language="python")
-                        else:
-                            st.warning("No code submitted")
-                    
-                    # AI Feedback
-                    st.markdown("#### AI Tutor Feedback")
-                    if 'feedback' not in session:
-                        feedback = generate_student_feedback(session, student)
-                        # Store feedback in database
+                        send_email(
+                            to_email=recipient_email,
+                            subject=subject,
+                            body=edited_email_body,
+                            cc_email=cc_list
+                        )
+                        
+                        # Update session to mark email as sent
                         db.test_sessions.update_one(
                             {"_id": session["_id"]},
-                            {"$set": {"feedback": feedback}}
+                            {"$set": {"email_sent": True}}
                         )
-                        st.markdown(feedback)
-                    else:
-                        st.markdown(session['feedback'])
-    else:
-        st.info("No test submissions yet.")
+                        
+                        st.success("✨ Email report sent successfully!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Failed to send email: {str(e)}")
+                        st.info("💡 Please check the email configuration in the .env file")
 
 def show_existing_students():
     st.subheader("Existing Students")
@@ -974,43 +1478,170 @@ def add_student():
             except Exception as e:
                 st.error(f"❌ Error adding student: {str(e)}")
 
-def show_dashboard():
-    st.title("Admin Dashboard")
+def revaluate_coding_submissions():
+    """Re-evaluate coding submissions for all existing test sessions"""
+    st.subheader("Re-evaluate Coding Submissions")
     
-    # Add logout button and stats in sidebar
-    if st.sidebar.button("🚪 Logout", use_container_width=True):
-        st.session_state.user_role = None
-        st.rerun()
-    
-    # Add statistics in sidebar
-    stats = get_question_set_statistics()
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Question Set Statistics")
-    st.sidebar.metric("Total Question Sets", stats["total_sets"])
-    st.sidebar.metric("Sets in Use", stats["used_sets"])
-    st.sidebar.metric("Available Sets", stats["unused_sets"])
-    
-    if stats["unused_sets"] < 3:
-        st.sidebar.warning("⚠️ Low on available question sets. Consider generating more!")
-    
-    # Create tabs for different sections
-    tabs = st.tabs(["Generate Questions", "View Questions", "Student Management", "Test Results", "Settings"])
-    
-    with tabs[0]:
-        generate_questions()
-    
-    with tabs[1]:
-        view_questions(stats)  # Pass the stats to avoid recalculating
-    
-    with tabs[2]:
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            add_student()
-        with col2:
-            show_existing_students()
-    
-    with tabs[3]:
-        view_results()
-    
-    with tabs[4]:
-        manage_contest_settings() 
+    if st.button("Start Re-evaluation"):
+        # Get all test sessions with coding submissions
+        test_sessions = list(db.test_sessions.find({
+            "question_attempts": {
+                "$elemMatch": {
+                    "question_id": "coding_1"
+                }
+            }
+        }))
+        
+        if not test_sessions:
+            st.info("No test sessions with coding submissions found.")
+            return
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, session in enumerate(test_sessions):
+            status_text.text(f"Re-evaluating submission {i+1}/{len(test_sessions)}...")
+            
+            # Find the coding attempt
+            coding_attempt = next(
+                (attempt for attempt in session['question_attempts'] 
+                if attempt.get('question_id') == "coding_1"),
+                None
+            )
+            
+            if coding_attempt:
+                # Check if code is actually submitted
+                student_code = coding_attempt.get('student_answer', '').strip()
+                if not student_code:
+                    # If no code submitted, set all scores to 0
+                    coding_attempt.update({
+                        "is_correct": False,
+                        "marks_obtained": 0,
+                        "coding_breakdown": {
+                            "attempt_score": 0,
+                            "syntax_score": 0,
+                            "logic_score": 0,
+                            "explanation": "No code was submitted for evaluation."
+                        }
+                    })
+                else:
+                    # Get the original coding question using coding_set_id
+                    coding_set_id = session.get("coding_set_id")
+                    if not coding_set_id and "problem_set_id" in session:
+                        # Fallback for old sessions: try to find coding set using problem_set_id
+                        mcq_set = db.questions.find_one({"_id": session["problem_set_id"], "type": "mcq"})
+                        if mcq_set:
+                            coding_set = db.questions.find_one({
+                                "type": "coding",
+                                "universal_prompt": mcq_set["universal_prompt"],
+                                "created_at": {
+                                    "$gte": mcq_set["created_at"] - timedelta(seconds=5),
+                                    "$lte": mcq_set["created_at"] + timedelta(seconds=5)
+                                }
+                            })
+                            if coding_set:
+                                coding_set_id = coding_set["_id"]
+                                # Update session with coding_set_id for future use
+                                db.test_sessions.update_one(
+                                    {"_id": session["_id"]},
+                                    {"$set": {"coding_set_id": coding_set_id}}
+                                )
+                    
+                    if coding_set_id:
+                        coding_set = db.questions.find_one({"_id": coding_set_id, "type": "coding"})
+                        if coding_set and coding_set['generated_questions']:
+                            coding_question = coding_set['generated_questions'][0]
+                            
+                            # Create evaluation prompt
+                            evaluation_prompt = f"""Evaluate this Python code submission based on the following rubrics:
+
+Problem Statement:
+{coding_question['problem_statement']}
+
+Student's Code:
+{student_code}
+
+Evaluation Rubrics:
+1. Attempt Score (1 point):
+   - 1 point if code is submitted and makes a genuine attempt to solve the problem
+   - 0 points if no code submitted or submission is clearly not an attempt to solve the problem
+
+2. Syntax Correction Score (2 points):
+   - 2 points for perfect syntax
+   - 1 point if 1-2 syntax errors (excluding indentation)
+   - 0 points if more than 2 syntax errors
+
+3. Code Logic Score (2 points):
+   - 2 points if the code logic correctly matches the problem statement
+   - 0 points if the logic doesn't match the problem statement
+   Note: Code logic should solve the given problem correctly, even if there are syntax errors
+
+Return ONLY a JSON object in this EXACT format:
+{{
+    "attempt_score": 0 or 1,
+    "syntax_score": 0, 1, or 2,
+    "logic_score": 0 or 2,
+    "explanation": "Brief explanation of the scores"
+}}"""
+
+                            # Get evaluation from Gemini
+                            evaluation_response = ask_gemini(evaluation_prompt)
+                            if evaluation_response:
+                                try:
+                                    evaluation = json.loads(clean_json_string(evaluation_response))
+                                    coding_score = evaluation['attempt_score'] + evaluation['syntax_score'] + evaluation['logic_score']
+                                    
+                                    # Update the coding attempt with new scores
+                                    coding_attempt.update({
+                                        "is_correct": coding_score > 0,
+                                        "marks_obtained": coding_score,
+                                        "coding_breakdown": {
+                                            "attempt_score": evaluation['attempt_score'],
+                                            "syntax_score": evaluation['syntax_score'],
+                                            "logic_score": evaluation['logic_score'],
+                                            "explanation": evaluation['explanation']
+                                        }
+                                    })
+                                except json.JSONDecodeError:
+                                    st.error(f"Error parsing evaluation for session {session['_id']}")
+                        else:
+                            st.error(f"Could not find coding question set for session {session['_id']}")
+                    else:
+                        st.error(f"No coding set ID found for session {session['_id']}")
+                
+                # Recalculate total score
+                mcq_score = sum(
+                    attempt['marks_obtained'] 
+                    for attempt in session['question_attempts'] 
+                    if isinstance(attempt.get('question_id'), int)
+                )
+                total_score = mcq_score + coding_attempt.get('marks_obtained', 0)
+                
+                # Get student info for feedback generation
+                student_id = session["student_id"]
+                if isinstance(student_id, str):
+                    student_id = ObjectId(student_id)
+                student = db.users.find_one({"_id": student_id})
+                
+                # Generate new AI tutor feedback
+                new_feedback = generate_student_feedback(
+                    {**session, "question_attempts": session['question_attempts']}, 
+                    student
+                )
+                
+                # Update the test session with new scores and feedback
+                db.test_sessions.update_one(
+                    {"_id": session["_id"]},
+                    {
+                        "$set": {
+                            "question_attempts": session['question_attempts'],
+                            "total_score": total_score,
+                            "feedback": new_feedback
+                        }
+                    }
+                )
+            
+            progress_bar.progress((i + 1) / len(test_sessions))
+        
+        st.success("✅ Re-evaluation completed with updated AI tutor feedback!")
+        st.rerun() 
