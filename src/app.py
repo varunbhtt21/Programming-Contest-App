@@ -28,7 +28,8 @@ def show_login():
         
         if submit:
             # Check admin credentials
-            if username == "test" and password == "test":
+            if (username == st.secrets["admin_username"] and 
+                password == st.secrets["admin_password"]):
                 st.session_state.user_role = "admin"
                 st.session_state.student_id = None
                 st.rerun()
@@ -66,10 +67,7 @@ def main():
     )
     
     # Check MongoDB connection
-    try:
-        db.client.admin.command('ping')
-    except Exception as e:
-        st.error(f"Failed to connect to MongoDB: {str(e)}")
+    if not check_db_connection():
         return
     
     # Show appropriate dashboard based on user role
