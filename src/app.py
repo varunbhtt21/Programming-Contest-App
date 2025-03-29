@@ -13,9 +13,15 @@ load_dotenv()
 with open(".streamlit/secrets.toml", "rb") as f:
     secrets = tomli.load(f)
 
+# Initialize database
+db = get_database()
+
 def check_db_connection():
     """Check if MongoDB connection is working"""
     try:
+        if not db:
+            st.error("Failed to initialize MongoDB connection")
+            return False
         # Try to execute a simple command to test the connection
         db.client.admin.command('ping')
         return True

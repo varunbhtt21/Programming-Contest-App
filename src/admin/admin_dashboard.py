@@ -1,5 +1,4 @@
 import streamlit as st
-from database.mongodb import db
 import pandas as pd
 from datetime import datetime, timedelta
 import google.generativeai as genai
@@ -14,6 +13,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import tomli
+from database.mongodb import get_database
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +21,9 @@ load_dotenv()
 # Load secrets using tomli
 with open(".streamlit/secrets.toml", "rb") as f:
     secrets = tomli.load(f)
+
+# Initialize database
+db = get_database()
 
 # Configure Gemini
 genai.configure(api_key=secrets["gemini_key"])
@@ -373,7 +376,7 @@ def generate_email_report(session, student):
     </div>
     
     <div class="section">
-        <h3>�� Detailed Summary</h3>
+        <h3> Detailed Summary</h3>
         <div class="summary-section">
             {session.get('feedback', 'No feedback available')
                 .replace('📝 MCQ Performance Summary', '<h4>📝 MCQ Performance Summary</h4>')

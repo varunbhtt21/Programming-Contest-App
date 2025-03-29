@@ -25,10 +25,6 @@ def get_database():
         print(f"Error connecting to MongoDB: {e}")
         return None
 
-# Export the database instance
-__all__ = ['db']
-
-# Create collections
 def initialize_collections(db):
     """Initialize all required collections if they don't exist"""
     try:
@@ -44,5 +40,8 @@ def initialize_collections(db):
         print(f"Error initializing collections: {e}")
         raise e
 
-# Initialize collections
-initialize_collections(db) 
+# Initialize database instance
+db = get_database()
+
+# Export the database instance
+__all__ = ['db', 'get_database'] 
