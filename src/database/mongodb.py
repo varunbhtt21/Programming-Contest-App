@@ -12,10 +12,10 @@ def load_secrets():
     # Try Streamlit Cloud secrets first
     try:
         return {
-            "mongodb_username": st.secrets["mongodb_username"],
-            "mongodb_password": st.secrets["mongodb_password"],
-            "mongodb_cluster": st.secrets["mongodb_cluster"],
-            "mongodb_database": st.secrets["mongodb_database"]
+            "mongodb_username": st.secrets.mongodb["username"],
+            "mongodb_password": st.secrets.mongodb["password"],
+            "mongodb_cluster": st.secrets.mongodb["cluster"],
+            "mongodb_database": st.secrets.mongodb["database"]
         }
     except Exception as e:
         errors.append(f"Streamlit Cloud secrets error: {str(e)}")
@@ -24,7 +24,13 @@ def load_secrets():
     try:
         secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
         with open(secrets_path, 'rb') as f:
-            return tomli.load(f)
+            config = tomli.load(f)
+            return {
+                "mongodb_username": config["mongodb"]["username"],
+                "mongodb_password": config["mongodb"]["password"],
+                "mongodb_cluster": config["mongodb"]["cluster"],
+                "mongodb_database": config["mongodb"]["database"]
+            }
     except FileNotFoundError:
         errors.append(f"Local secrets.toml not found at {secrets_path}")
     except Exception as e:
@@ -36,11 +42,11 @@ def load_secrets():
         "",
         "1. For Streamlit Cloud deployment:",
         "   - Add secrets in Streamlit Cloud dashboard under 'Settings > Secrets'",
-        "   - Required keys: mongodb_username, mongodb_password, mongodb_cluster, mongodb_database",
+        "   - Required keys under [mongodb] section: username, password, cluster, database",
         "",
         "2. For local development:",
         "   - Create .streamlit/secrets.toml in the src directory",
-        "   - Add required MongoDB configuration",
+        "   - Add required MongoDB configuration under [mongodb] section",
         "",
         "Detailed errors:",
         *errors

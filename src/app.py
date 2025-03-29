@@ -7,6 +7,13 @@ import student.student_dashboard as student_dashboard
 from dotenv import load_dotenv
 import os
 
+# Set page config
+st.set_page_config(
+    page_title="Programming Contest App",
+    page_icon="🏆",
+    layout="wide"
+)
+
 # Load environment variables
 load_dotenv()
 
@@ -17,8 +24,8 @@ def load_secrets():
     # Try Streamlit Cloud secrets first
     try:
         return {
-            "admin_username": st.secrets["admin_username"],
-            "admin_password": st.secrets["admin_password"]
+            "admin_username": st.secrets.admin["username"],
+            "admin_password": st.secrets.admin["password"]
         }
     except Exception as e:
         errors.append(f"Streamlit Cloud secrets error: {str(e)}")
@@ -27,7 +34,11 @@ def load_secrets():
     try:
         secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
         with open(secrets_path, 'rb') as f:
-            return tomli.load(f)
+            config = tomli.load(f)
+            return {
+                "admin_username": config["admin"]["username"],
+                "admin_password": config["admin"]["password"]
+            }
     except FileNotFoundError:
         errors.append(f"Local secrets.toml not found at {secrets_path}")
     except Exception as e:
@@ -39,11 +50,11 @@ def load_secrets():
         "",
         "1. For Streamlit Cloud deployment:",
         "   - Add secrets in Streamlit Cloud dashboard under 'Settings > Secrets'",
-        "   - Required keys: admin_username, admin_password",
+        "   - Required keys under [admin] section: username, password",
         "",
         "2. For local development:",
         "   - Create .streamlit/secrets.toml in the src directory",
-        "   - Add required admin credentials",
+        "   - Add required admin credentials under [admin] section",
         "",
         "Detailed errors:",
         *errors
@@ -130,13 +141,6 @@ def main():
         st.session_state.test_started = False
     if 'test_completed' not in st.session_state:
         st.session_state.test_completed = False
-    
-    # Set page config
-    st.set_page_config(
-        page_title="Programming Contest App",
-        page_icon="🏆",
-        layout="wide"
-    )
     
     # Check MongoDB connection
     if not check_db_connection():

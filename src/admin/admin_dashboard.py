@@ -24,12 +24,12 @@ def load_secrets():
     try:
         # First try to get secrets from Streamlit's secrets manager (for cloud deployment)
         secrets = {
-            "gemini_key": st.secrets["gemini_key"],
-            "smtp_server": st.secrets["smtp_server"],
-            "smtp_port": st.secrets["smtp_port"],
-            "smtp_username": st.secrets["smtp_username"],
-            "smtp_password": st.secrets["smtp_password"],
-            "from_email": st.secrets["from_email"]
+            "gemini_key": st.secrets.api["gemini_key"],
+            "smtp_server": st.secrets.email["server"],
+            "smtp_port": st.secrets.email["port"],
+            "smtp_username": st.secrets.email["username"],
+            "smtp_password": st.secrets.email["password"],
+            "from_email": st.secrets.email["from_addr"]
         }
         return secrets
     except Exception:
@@ -37,7 +37,15 @@ def load_secrets():
         try:
             secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
             with open(secrets_path, 'rb') as f:
-                return tomli.load(f)
+                config = tomli.load(f)
+                return {
+                    "gemini_key": config["api"]["gemini_key"],
+                    "smtp_server": config["email"]["server"],
+                    "smtp_port": config["email"]["port"],
+                    "smtp_username": config["email"]["username"],
+                    "smtp_password": config["email"]["password"],
+                    "from_email": config["email"]["from_addr"]
+                }
         except Exception as e:
             raise Exception("Failed to load secrets from both Streamlit Cloud and local file") from e
 
