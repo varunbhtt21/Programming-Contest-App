@@ -12,30 +12,74 @@ load_dotenv()
 
 def load_secrets():
     """Load secrets from Streamlit secrets or local file"""
+    errors = []
+    
+    # Try Streamlit Cloud secrets first
     try:
-        # First try to get secrets from Streamlit's secrets manager (for cloud deployment)
-        secrets = {
+        return {
             "admin_username": st.secrets["admin_username"],
             "admin_password": st.secrets["admin_password"]
         }
-        return secrets
-    except Exception:
-        # Fallback to local file (for development)
-        try:
-            secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
-            with open(secrets_path, 'rb') as f:
-                return tomli.load(f)
-        except Exception as e:
-            raise Exception("Failed to load secrets from both Streamlit Cloud and local file") from e
+    except Exception as e:
+        errors.append(f"Streamlit Cloud secrets error: {str(e)}")
+    
+    # Try local secrets file
+    try:
+        secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
+        with open(secrets_path, 'rb') as f:
+            return tomli.load(f)
+    except FileNotFoundError:
+        errors.append(f"Local secrets.toml not found at {secrets_path}")
+    except Exception as e:
+        errors.append(f"Error reading local secrets: {str(e)}")
+    
+    # If we get here, both methods failed
+    error_message = "\n".join([
+        "Failed to load admin credentials. Please ensure either:",
+        "",
+        "1. For Streamlit Cloud deployment:",
+        "   - Add secrets in Streamlit Cloud dashboard under 'Settings > Secrets'",
+        "   - Required keys: admin_username, admin_password",
+        "",
+        "2. For local development:",
+        "   - Create .streamlit/secrets.toml in the src directory",
+        "   - Add required admin credentials",
+        "",
+        "Detailed errors:",
+        *errors
+    ])
+    st.error(error_message)
+    raise Exception(error_message)
 
 def check_admin_credentials(username, password):
     """Check if the provided credentials match admin credentials"""
-    secrets = load_secrets()
-    return (username == secrets["admin_username"] and
-            password == secrets["admin_password"])
+    try:
+        secrets = load_secrets()
+        return (username == secrets["admin_username"] and
+                password == secrets["admin_password"])
+    except Exception:
+        return False
 
 def check_db_connection():
     """Check if MongoDB connection is working"""
+    if db is None:
+        st.error("MongoDB connection is not available. Please check your configuration.")
+        st.info("""
+        To configure MongoDB:
+        1. For Streamlit Cloud:
+           - Go to Settings > Secrets
+           - Add the following keys:
+             - mongodb_username
+             - mongodb_password
+             - mongodb_cluster
+             - mongodb_database
+        
+        2. For local development:
+           - Create src/.streamlit/secrets.toml
+           - Add the MongoDB configuration
+        """)
+        return False
+        
     try:
         # Try to execute a simple command to test the connection
         db.client.admin.command('ping')
@@ -59,19 +103,22 @@ def show_login():
                 st.session_state.student_id = None
                 st.rerun()
             else:
-                # Check student credentials
-                user = db.users.find_one({
-                    "username": username,
-                    "password": password,
-                    "role": "student"
-                })
-                
-                if user:
-                    st.session_state.user_role = "student"
-                    st.session_state.student_id = user["_id"]
-                    st.rerun()
+                # Check student credentials only if db is available
+                if db is not None:
+                    user = db.users.find_one({
+                        "username": username,
+                        "password": password,
+                        "role": "student"
+                    })
+                    
+                    if user:
+                        st.session_state.user_role = "student"
+                        st.session_state.student_id = user["_id"]
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid username or password!")
                 else:
-                    st.error("❌ Invalid username or password!")
+                    st.error("❌ Database connection is not available. Please contact administrator.")
 
 def main():
     # Initialize session state if not exists
@@ -93,15 +140,27 @@ def main():
     
     # Check MongoDB connection
     if not check_db_connection():
-        return
+        st.warning("Application functionality will be limited until database connection is restored.")
     
     # Show appropriate dashboard based on user role
     if st.session_state.user_role is None:
         show_login()
     elif st.session_state.user_role == "admin":
-        admin_dashboard.show_dashboard()
+        if db is not None:
+            admin_dashboard.show_dashboard()
+        else:
+            st.error("Admin dashboard is not available without database connection.")
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
     elif st.session_state.user_role == "student":
-        student_dashboard.show_dashboard()
+        if db is not None:
+            student_dashboard.show_dashboard()
+        else:
+            st.error("Student dashboard is not available without database connection.")
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
 
 if __name__ == "__main__":
     main() 
