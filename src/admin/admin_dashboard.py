@@ -13,58 +13,40 @@ from dotenv import load_dotenv
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import tomli
 
 # Load environment variables
 load_dotenv()
 
+# Load secrets using tomli
+with open(".streamlit/secrets.toml", "rb") as f:
+    secrets = tomli.load(f)
+
 # Configure Gemini
-genai.configure(api_key=st.secrets["gemini_key"])
+genai.configure(api_key=secrets["gemini_key"])
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-def send_email(to_email, cc_email, subject, body):
-    """Send email using SMTP"""
+def send_email(to_addr, subject, body):
     try:
-        # Get email configuration from Streamlit secrets
-        smtp_server = st.secrets["smtp_server"]
-        smtp_port = st.secrets["smtp_port"]
-        smtp_username = st.secrets["smtp_username"]
-        smtp_password = st.secrets["smtp_password"]
-        from_email = st.secrets["from_email"]
-
-        # Validate email configuration
-        if not all([smtp_server, smtp_port, smtp_username, smtp_password, from_email]):
-            st.error("Email configuration is incomplete. Please check your secrets.toml file.")
-            return False
-        
         # Create message
-        msg = MIMEMultipart('alternative')
+        msg = MIMEMultipart()
+        msg['From'] = secrets["from_email"]
+        msg['To'] = to_addr
         msg['Subject'] = subject
-        msg['From'] = from_email
-        msg['To'] = to_email
+        msg.attach(MIMEText(body, 'plain'))
 
-        # Handle CC recipients
-        recipients = [to_email]
-        if cc_email:
-            if isinstance(cc_email, list):
-                # Join multiple CC emails with commas
-                msg['Cc'] = ', '.join(cc_email)
-                recipients.extend(cc_email)
-            else:
-                # Single CC email
-                msg['Cc'] = cc_email
-                recipients.append(cc_email)
-        
-        # Add HTML content
-        msg.attach(MIMEText(body, 'html'))
+        # Create SMTP session
+        server = smtplib.SMTP(secrets["smtp_server"], secrets["smtp_port"])
+        server.starttls()
+        server.login(secrets["smtp_username"], secrets["smtp_password"])
         
         # Send email
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_username, smtp_password)
-            server.sendmail(from_email, recipients, msg.as_string())
-        
+        server.send_message(msg)
+        server.quit()
+        return True
     except Exception as e:
-        raise Exception(f"Failed to send email: {str(e)}")
+        print(f"Error sending email: {e}")
+        return False
 
 def generate_email_report(session, student):
     """Generate HTML email report for student test results"""
@@ -391,7 +373,7 @@ def generate_email_report(session, student):
     </div>
     
     <div class="section">
-        <h3>📊 Detailed Summary</h3>
+        <h3>�� Detailed Summary</h3>
         <div class="summary-section">
             {session.get('feedback', 'No feedback available')
                 .replace('📝 MCQ Performance Summary', '<h4>📝 MCQ Performance Summary</h4>')
@@ -1281,10 +1263,9 @@ def view_results():
                             cc_list = [email.strip() for email in cc_email.split(',') if email.strip()]
                         
                         send_email(
-                            to_email=recipient_email,
+                            to_addr=recipient_email,
                             subject=subject,
-                            body=edited_email_body,
-                            cc_email=cc_list
+                            body=edited_email_body
                         )
                         
                         # Update session to mark email as sent
