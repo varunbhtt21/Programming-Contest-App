@@ -5,4 +5,5 @@ pandas==2.2.3
 dnspython==2.7.0
 google-generativeai==0.3.2
 xlsxwriter
-pyngrok 
+pyngrok
+tomli==2.0.1  # Modern TOML parser for Python 3.11+ 

@@ -28,8 +28,8 @@ def show_login():
         
         if submit:
             # Check admin credentials
-            if (username == st.secrets.admin.username and
-                password == st.secrets.admin.password):
+            if (username == st.secrets["admin_username"] and
+                password == st.secrets["admin_password"]):
                 st.session_state.user_role = "admin"
                 st.session_state.student_id = None
                 st.rerun()

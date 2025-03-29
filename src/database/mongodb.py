@@ -4,10 +4,10 @@ import streamlit as st
 from urllib.parse import quote_plus
 
 # Get MongoDB connection details from Streamlit secrets
-username = st.secrets.mongodb.username
-password = st.secrets.mongodb.password
-cluster = st.secrets.mongodb.cluster
-DB_NAME = st.secrets.mongodb.database
+username = st.secrets["mongodb_username"]
+password = st.secrets["mongodb_password"]
+cluster = st.secrets["mongodb_cluster"]
+DB_NAME = st.secrets["mongodb_database"]
 
 # Construct MongoDB URI
 MONGODB_URI = f"mongodb+srv://{username}:{password}@{cluster}/?appName=programming-contest"

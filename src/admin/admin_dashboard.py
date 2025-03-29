@@ -18,18 +18,18 @@ from email.mime.multipart import MIMEMultipart
 load_dotenv()
 
 # Configure Gemini
-genai.configure(api_key=st.secrets.api.gemini_key)
+genai.configure(api_key=st.secrets["gemini_key"])
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 def send_email(to_email, cc_email, subject, body):
     """Send email using SMTP"""
     try:
         # Get email configuration from Streamlit secrets
-        smtp_server = st.secrets.email.server
-        smtp_port = st.secrets.email.port
-        smtp_username = st.secrets.email.username
-        smtp_password = st.secrets.email.password
-        from_email = st.secrets.email.from_addr
+        smtp_server = st.secrets["smtp_server"]
+        smtp_port = st.secrets["smtp_port"]
+        smtp_username = st.secrets["smtp_username"]
+        smtp_password = st.secrets["smtp_password"]
+        from_email = st.secrets["from_email"]
 
         # Validate email configuration
         if not all([smtp_server, smtp_port, smtp_username, smtp_password, from_email]):
