@@ -390,49 +390,78 @@ def submit_test():
     """Submit the test and calculate scores"""
     if not st.session_state.get('test_session'):
         st.error("No active test session found")
-        return
+        return None
     
-    if st.button("Submit Test"):
-        # Get the test session
-        test_session = st.session_state.test_session
-        
-        # Calculate total score
-        mcq_score = sum(attempt['marks_obtained'] for attempt in test_session['question_attempts'] 
-                       if isinstance(attempt.get('question_id'), int))
-        
-        coding_attempt = next((attempt for attempt in test_session['question_attempts'] 
-                             if attempt.get('question_id') == "coding_1"), None)
-        coding_score = coding_attempt.get('marks_obtained', 0) if coding_attempt else 0
-        
-        total_score = mcq_score + coding_score
-        
-        # Update test session with completion status and time
-        test_session.update({
-            "is_completed": True,
-            "end_time": datetime.now(),
-            "total_score": total_score
-        })
-        
-        # Update in database
-        db.test_sessions.update_one(
-            {"_id": test_session["_id"]},
-            {
-                "$set": {
-                    "question_attempts": test_session["question_attempts"],
-                    "is_completed": True,
-                    "end_time": test_session["end_time"],
-                    "total_score": total_score
-                }
+    # Get the test session
+    test_session = st.session_state.test_session
+    
+    # Save MCQ attempts
+    mcq_attempts = []
+    for i in range(5):  # 5 MCQ questions
+        answer = st.session_state.questions['answers'].get(f"mcq_{i}")
+        if answer:
+            current_mcq = st.session_state.questions['mcq'][i]
+            mcq_attempts.append({
+                "question_id": i + 1,
+                "question_text": current_mcq['question_text'],
+                "student_answer": answer,
+                "correct_answer": current_mcq['correct_answer'],
+                "is_correct": answer == current_mcq['correct_answer'],
+                "marks_obtained": 1 if answer == current_mcq['correct_answer'] else 0
+            })
+    
+    # Save coding attempt
+    coding_answer = st.session_state.questions['answers'].get('coding', '')
+    coding_question = st.session_state.questions['coding'][0]
+    coding_attempt = {
+        "question_id": "coding_1",
+        "question_text": coding_question['problem_statement'],
+        "student_answer": coding_answer,
+        "sample_input": coding_question['sample_input'],
+        "sample_output": coding_question['sample_output'],
+        "is_correct": False,  # Will be evaluated later
+        "marks_obtained": 0,  # Will be evaluated later
+        "coding_breakdown": {
+            "attempt_score": 0,
+            "syntax_score": 0,
+            "logic_score": 0,
+            "explanation": "Pending evaluation"
+        }
+    }
+    
+    # Update test session with attempts
+    test_session['question_attempts'] = mcq_attempts + [coding_attempt]
+    
+    # Calculate total score (for now, only MCQ score)
+    mcq_score = sum(attempt['marks_obtained'] for attempt in mcq_attempts)
+    total_score = mcq_score  # Coding score will be added after evaluation
+    
+    # Update test session with completion status and time
+    test_session.update({
+        "is_completed": True,
+        "end_time": datetime.now(),
+        "total_score": total_score
+    })
+    
+    # Update in database
+    db.test_sessions.update_one(
+        {"_id": test_session["_id"]},
+        {
+            "$set": {
+                "question_attempts": test_session["question_attempts"],
+                "is_completed": True,
+                "end_time": test_session["end_time"],
+                "total_score": total_score
             }
-        )
-        
-        # Clear session state
-        st.session_state.test_session = None
-        st.session_state.current_question = None
-        st.session_state.test_started = False
-        
-        st.success("Test submitted successfully!")
-        st.rerun()
+        }
+    )
+    
+    # Clear session state
+    st.session_state.test_session = None
+    st.session_state.current_question = None
+    st.session_state.test_started = False
+    
+    return total_score
 
 def show_completed_test(test_session):
     """Show the test completion screen"""
