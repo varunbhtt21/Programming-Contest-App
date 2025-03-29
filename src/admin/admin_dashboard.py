@@ -21,18 +21,20 @@ load_dotenv()
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-def send_email(to_email, subject, body, cc_email=None):
+def send_email(to_email, cc_email, subject, body):
     """Send email using SMTP"""
     try:
-        # Get email credentials from environment variables
-        smtp_server = os.getenv('SMTP_SERVER')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_username = os.getenv('SMTP_USERNAME')
-        smtp_password = os.getenv('SMTP_PASSWORD')
-        from_email = os.getenv('FROM_EMAIL')
-        
+        # Get email configuration from Streamlit secrets
+        smtp_server = st.secrets.email.server
+        smtp_port = st.secrets.email.port
+        smtp_username = st.secrets.email.username
+        smtp_password = st.secrets.email.password
+        from_email = st.secrets.email.from_addr
+
+        # Validate email configuration
         if not all([smtp_server, smtp_port, smtp_username, smtp_password, from_email]):
-            raise ValueError("Missing email configuration. Please check environment variables.")
+            st.error("Email configuration is incomplete. Please check your secrets.toml file.")
+            return False
         
         # Create message
         msg = MIMEMultipart('alternative')
