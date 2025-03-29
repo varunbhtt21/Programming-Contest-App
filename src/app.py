@@ -1,7 +1,8 @@
 import streamlit as st
 import tomli
-from database.mongodb import get_database
-from admin.admin_dashboard import admin_dashboard
+from pathlib import Path
+from database.mongodb import db
+import admin.admin_dashboard as admin_dashboard
 import student.student_dashboard as student_dashboard
 from dotenv import load_dotenv
 import os
@@ -9,19 +10,21 @@ import os
 # Load environment variables
 load_dotenv()
 
-# Load secrets using tomli
-with open(".streamlit/secrets.toml", "rb") as f:
-    secrets = tomli.load(f)
+def load_secrets():
+    """Load secrets from .streamlit/secrets.toml file"""
+    secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
+    with open(secrets_path, 'rb') as f:
+        return tomli.load(f)
 
-# Initialize database
-db = get_database()
+def check_admin_credentials(username, password):
+    """Check if the provided credentials match admin credentials"""
+    secrets = load_secrets()
+    return (username == secrets["admin_username"] and
+            password == secrets["admin_password"])
 
 def check_db_connection():
     """Check if MongoDB connection is working"""
     try:
-        if not db:
-            st.error("Failed to initialize MongoDB connection")
-            return False
         # Try to execute a simple command to test the connection
         db.client.admin.command('ping')
         return True
@@ -39,8 +42,7 @@ def show_login():
         
         if submit:
             # Check admin credentials
-            if (username == secrets["admin_username"] and
-                password == secrets["admin_password"]):
+            if check_admin_credentials(username, password):
                 st.session_state.user_role = "admin"
                 st.session_state.student_id = None
                 st.rerun()

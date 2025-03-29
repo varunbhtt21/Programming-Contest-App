@@ -1,30 +1,33 @@
 import os
 import tomli
 from pymongo import MongoClient
-import streamlit as st
 from urllib.parse import quote_plus
+from pathlib import Path
 
-# Load secrets using tomli
-with open(".streamlit/secrets.toml", "rb") as f:
-    secrets = tomli.load(f)
+def load_secrets():
+    """Load secrets from .streamlit/secrets.toml file"""
+    secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
+    with open(secrets_path, 'rb') as f:
+        return tomli.load(f)
 
-def get_database():
-    try:
-        # Use secrets loaded via tomli
-        username = quote_plus(secrets["mongodb_username"])
-        password = quote_plus(secrets["mongodb_password"])
-        cluster = secrets["mongodb_cluster"]
-        database = secrets["mongodb_database"]
-        
-        uri = f"mongodb+srv://{username}:{password}@{cluster}/?retryWrites=true&w=majority"
-        client = MongoClient(uri)
-        db = client[database]
-        initialize_collections(db)
-        return db
-    except Exception as e:
-        print(f"Error connecting to MongoDB: {e}")
-        return None
+# Get MongoDB connection details from secrets file
+secrets = load_secrets()
+username = secrets["mongodb_username"]
+password = secrets["mongodb_password"]
+cluster = secrets["mongodb_cluster"]
+DB_NAME = secrets["mongodb_database"]
 
+# Construct MongoDB URI
+MONGODB_URI = f"mongodb+srv://{username}:{password}@{cluster}/?appName=programming-contest"
+
+# Create MongoDB client
+client = MongoClient(MONGODB_URI)
+db = client[DB_NAME]
+
+# Export the database instance
+__all__ = ['db']
+
+# Create collections
 def initialize_collections(db):
     """Initialize all required collections if they don't exist"""
     try:
@@ -40,8 +43,5 @@ def initialize_collections(db):
         print(f"Error initializing collections: {e}")
         raise e
 
-# Initialize database instance
-db = get_database()
-
-# Export the database instance
-__all__ = ['db', 'get_database'] 
+# Initialize collections
+initialize_collections(db) 

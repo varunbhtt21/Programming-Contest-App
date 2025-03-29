@@ -1,4 +1,5 @@
 import streamlit as st
+from database.mongodb import db
 import pandas as pd
 from datetime import datetime, timedelta
 import google.generativeai as genai
@@ -13,43 +14,44 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import tomli
-from database.mongodb import get_database
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
 
-# Load secrets using tomli
-with open(".streamlit/secrets.toml", "rb") as f:
-    secrets = tomli.load(f)
+def load_secrets():
+    """Load secrets from .streamlit/secrets.toml file"""
+    secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
+    with open(secrets_path, 'rb') as f:
+        return tomli.load(f)
 
-# Initialize database
-db = get_database()
+# Load secrets
+secrets = load_secrets()
 
 # Configure Gemini
 genai.configure(api_key=secrets["gemini_key"])
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 def send_email(to_addr, subject, body):
-    try:
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = secrets["from_email"]
-        msg['To'] = to_addr
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        # Create SMTP session
-        server = smtplib.SMTP(secrets["smtp_server"], secrets["smtp_port"])
-        server.starttls()
-        server.login(secrets["smtp_username"], secrets["smtp_password"])
-        
-        # Send email
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+    """Send email using SMTP configuration from secrets"""
+    secrets = load_secrets()  # Reload secrets to ensure we have the latest
+    
+    # Create message
+    msg = MIMEMultipart()
+    msg['From'] = secrets["from_email"]
+    msg['To'] = to_addr
+    msg['Subject'] = subject
+    
+    msg.attach(MIMEText(body, 'plain'))
+    
+    # Create SMTP connection
+    server = smtplib.SMTP(secrets["smtp_server"], secrets["smtp_port"])
+    server.starttls()
+    
+    # Login and send
+    server.login(secrets["smtp_username"], secrets["smtp_password"])
+    server.send_message(msg)
+    server.quit()
 
 def generate_email_report(session, student):
     """Generate HTML email report for student test results"""
@@ -376,7 +378,7 @@ def generate_email_report(session, student):
     </div>
     
     <div class="section">
-        <h3> Detailed Summary</h3>
+        <h3>�� Detailed Summary</h3>
         <div class="summary-section">
             {session.get('feedback', 'No feedback available')
                 .replace('📝 MCQ Performance Summary', '<h4>📝 MCQ Performance Summary</h4>')
