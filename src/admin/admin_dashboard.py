@@ -18,7 +18,7 @@ from email.mime.multipart import MIMEMultipart
 load_dotenv()
 
 # Configure Gemini
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+genai.configure(api_key=st.secrets.api.gemini_key)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 def send_email(to_email, cc_email, subject, body):
