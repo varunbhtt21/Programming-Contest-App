@@ -11,10 +11,22 @@ import os
 load_dotenv()
 
 def load_secrets():
-    """Load secrets from .streamlit/secrets.toml file"""
-    secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
-    with open(secrets_path, 'rb') as f:
-        return tomli.load(f)
+    """Load secrets from Streamlit secrets or local file"""
+    try:
+        # First try to get secrets from Streamlit's secrets manager (for cloud deployment)
+        secrets = {
+            "admin_username": st.secrets["admin_username"],
+            "admin_password": st.secrets["admin_password"]
+        }
+        return secrets
+    except Exception:
+        # Fallback to local file (for development)
+        try:
+            secrets_path = Path(__file__).parent / '.streamlit' / 'secrets.toml'
+            with open(secrets_path, 'rb') as f:
+                return tomli.load(f)
+        except Exception as e:
+            raise Exception("Failed to load secrets from both Streamlit Cloud and local file") from e
 
 def check_admin_credentials(username, password):
     """Check if the provided credentials match admin credentials"""

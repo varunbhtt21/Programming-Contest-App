@@ -20,10 +20,26 @@ from pathlib import Path
 load_dotenv()
 
 def load_secrets():
-    """Load secrets from .streamlit/secrets.toml file"""
-    secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
-    with open(secrets_path, 'rb') as f:
-        return tomli.load(f)
+    """Load secrets from Streamlit secrets or local file"""
+    try:
+        # First try to get secrets from Streamlit's secrets manager (for cloud deployment)
+        secrets = {
+            "gemini_key": st.secrets["gemini_key"],
+            "smtp_server": st.secrets["smtp_server"],
+            "smtp_port": st.secrets["smtp_port"],
+            "smtp_username": st.secrets["smtp_username"],
+            "smtp_password": st.secrets["smtp_password"],
+            "from_email": st.secrets["from_email"]
+        }
+        return secrets
+    except Exception:
+        # Fallback to local file (for development)
+        try:
+            secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
+            with open(secrets_path, 'rb') as f:
+                return tomli.load(f)
+        except Exception as e:
+            raise Exception("Failed to load secrets from both Streamlit Cloud and local file") from e
 
 # Load secrets
 secrets = load_secrets()
@@ -378,7 +394,7 @@ def generate_email_report(session, student):
     </div>
     
     <div class="section">
-        <h3>�� Detailed Summary</h3>
+        <h3> Detailed Summary</h3>
         <div class="summary-section">
             {session.get('feedback', 'No feedback available')
                 .replace('📝 MCQ Performance Summary', '<h4>📝 MCQ Performance Summary</h4>')

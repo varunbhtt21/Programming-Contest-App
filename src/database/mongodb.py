@@ -3,14 +3,29 @@ import tomli
 from pymongo import MongoClient
 from urllib.parse import quote_plus
 from pathlib import Path
+import streamlit as st
 
 def load_secrets():
-    """Load secrets from .streamlit/secrets.toml file"""
-    secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
-    with open(secrets_path, 'rb') as f:
-        return tomli.load(f)
+    """Load secrets from Streamlit secrets or local file"""
+    try:
+        # First try to get secrets from Streamlit's secrets manager (for cloud deployment)
+        secrets = {
+            "mongodb_username": st.secrets["mongodb_username"],
+            "mongodb_password": st.secrets["mongodb_password"],
+            "mongodb_cluster": st.secrets["mongodb_cluster"],
+            "mongodb_database": st.secrets["mongodb_database"]
+        }
+        return secrets
+    except Exception:
+        # Fallback to local file (for development)
+        try:
+            secrets_path = Path(__file__).parent.parent / '.streamlit' / 'secrets.toml'
+            with open(secrets_path, 'rb') as f:
+                return tomli.load(f)
+        except Exception as e:
+            raise Exception("Failed to load secrets from both Streamlit Cloud and local file") from e
 
-# Get MongoDB connection details from secrets file
+# Get MongoDB connection details from secrets
 secrets = load_secrets()
 username = secrets["mongodb_username"]
 password = secrets["mongodb_password"]
