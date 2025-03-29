@@ -102,6 +102,13 @@ programming-contest-app/
 - Use secure MongoDB configuration
 - Keep `.env` file secure and never commit it to version control
 
+## Configuration
+
+### Secrets Configuration
+1. Copy `src/.streamlit/secrets.toml.example` to `src/.streamlit/secrets.toml`
+2. Update the values in `secrets.toml` with your actual credentials
+3. Never commit `secrets.toml` to version control - it's already in `.gitignore`
+
 ## Contributing
 
 1. Fork the repository
